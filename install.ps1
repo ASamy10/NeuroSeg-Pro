@@ -236,9 +236,50 @@ try {
         if (Test-Path $TokenFile) { Remove-Item $TokenFile -Force -ErrorAction SilentlyContinue }
 
         Write-Log "Orchestrating LocalAppData virtual environment at $VenvDir..." "INFO" $LogBootstrap
-        if (-not (Test-Path $VenvPy) -or -not (Test-Path $VenvPyw) -or $Repair) {
-            Write-Log "Creating clean isolated virtual environment via $pythonExe -m venv $VenvDir..." "INFO" $LogBootstrap
-            if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue }
+        $importedBackup = $false
+
+        # Prompt for offline backup if venv is unlocated and running interactively
+        if (-not (Test-Path $VenvPy) -and -not $Unattended) {
+            try {
+                Add-Type -AssemblyName System.Windows.Forms
+                $msgResult = [System.Windows.Forms.MessageBox]::Show(
+                    "Do you have a backed-up NeuroSeg Pro virtual environment (.venv folder) on an external drive or backup directory?`n`nSelecting your backup will import ~3 GB of pre-installed AI libraries locally, saving internet data and avoiding lengthy downloads.",
+                    "NeuroSeg Pro - Offline Cache & Backup Import",
+                    [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                    [System.Windows.Forms.MessageBoxIcon]::Question
+                )
+                if ($msgResult -eq [System.Windows.Forms.DialogResult]::Yes) {
+                    $fbd = New-Object System.Windows.Forms.FolderBrowserDialog
+                    $fbd.Description = "Select your backed-up .venv directory (containing Lib and Scripts folders):"
+                    $fbd.ShowNewFolderButton = $false
+                    if ($fbd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and $fbd.SelectedPath) {
+                        $srcPath = $fbd.SelectedPath
+                        if (Test-Path (Join-Path $srcPath "Lib\site-packages")) {
+                            Write-Log "Importing backup virtual environment from $srcPath to $VenvDir..." "INFO" $LogBootstrap
+                            if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue }
+                            New-Item -ItemType Directory -Path $VenvDir -Force | Out-Null
+                            if (Get-Command robocopy -ErrorAction SilentlyContinue) {
+                                robocopy "`"$srcPath`"" "`"$VenvDir`"" /E /MT:8 /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+                            } else {
+                                Copy-Item -Path "$srcPath\*" -Destination $VenvDir -Recurse -Force
+                            }
+                            $importedBackup = $true
+                            Write-Log "Backup virtual environment successfully imported." "INFO" $LogBootstrap
+                        } else {
+                            Write-Log "Notice: Selected path $srcPath did not contain Lib\site-packages. Proceeding with standard setup." "WARNING" $LogBootstrap
+                        }
+                    }
+                }
+            } catch {
+                Write-Log "Notice: Graphical folder browser unavailable. Proceeding with standard setup." "WARNING" $LogBootstrap
+            }
+        }
+
+        if (-not (Test-Path $VenvPy) -or -not (Test-Path $VenvPyw) -or $Repair -or $importedBackup) {
+            Write-Log "Synchronizing virtual environment links via $pythonExe -m venv $VenvDir..." "INFO" $LogBootstrap
+            if (-not $importedBackup -and (Test-Path $VenvDir)) {
+                Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue
+            }
             & $pythonExe -m venv $VenvDir
             $venvExit = $LASTEXITCODE
             Write-Log "python -m venv exited with code $venvExit" "INFO" $LogBootstrap
