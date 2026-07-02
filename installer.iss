@@ -89,7 +89,7 @@ end;
 
 procedure InitializeWizard;
 begin
-  SysPackagesPage := CreateInputOptionPage(wpSelectTasks,
+  SysPackagesPage := CreateInputOptionPage(wpSelectDir,
     'Python & Dependency Configuration', 'Optimize installation speed by reusing existing packages',
     'Select whether NeuroSeg Pro should inherit packages already installed on your system (such as PyTorch or MONAI). Reusing existing installations prevents large 2.5 GB downloads.',
     False, False);

@@ -427,21 +427,7 @@ try {
     Write-Log "Elevation Required  : $elevationRequired" "INFO" $LogBootstrap
 
     if (-not $isAdmin) {
-        Write-Log "Notice: Bootstrapper invoked without Administrator rights. Relaunching via Start-Process -Verb RunAs..." "WARNING" $LogBootstrap
-        $argList = @("-ExecutionPolicy", "Bypass", "-NoProfile", "-File", "`"$($MyInvocation.MyCommand.Path)`"")
-        if ($Unattended) { $argList += "-Unattended" }
-        if ($Repair) { $argList += "-Repair" }
-
-        try {
-            $elevatedProc = Start-Process powershell.exe -Verb RunAs -ArgumentList $argList -Wait -PassThru
-            Write-Log "Self-elevation relaunch succeeded. Child process exited with code: $($elevatedProc.ExitCode)" "INFO" $LogBootstrap
-            exit $elevatedProc.ExitCode
-        }
-        catch {
-            Write-Log "Self-elevation failed. This may happen if UAC is disabled by Group Policy or the prompt was declined by the user." "ERROR" $LogBootstrap
-            Write-Log "Remediation: Right-click the installer and select 'Run as Administrator', or ask your IT admin to enable UAC." "ERROR" $LogBootstrap
-            throw "Administrator privileges are required to configure NeuroSeg Pro system dependencies. Error: $_"
-        }
+        Write-Log "Notice: Running under Standard User context ($($currentIdentity.Name)). Runtime folder ($LocalAppDataDir) supports per-user setup without admin rights." "INFO" $LogBootstrap
     }
 
     $osInfo = Get-CimInstance Win32_OperatingSystem
@@ -665,8 +651,11 @@ try {
                 $venvBroken = $true  # Missing executables = definitely needs creation
             }
 
+            & $pythonExe -c "import torch" 2>$null
+            $sysHasTorch = ($LASTEXITCODE -eq 0)
+            $inheritSys = $UseSystemSitePackages -or $sysHasTorch
+
             if ($venvBroken) {
-                $inheritSys = $UseSystemSitePackages -or (& $pythonExe -c "import torch" 2>$null)
                 $venvArgs = @("-m", "venv", $VenvDir)
                 if ($inheritSys) {
                     Write-Log "Creating virtual environment with --system-site-packages to inherit existing PyTorch/libraries..." "INFO" $LogBootstrap
@@ -684,7 +673,9 @@ try {
         else {
             # Configure system site-packages inheritance if requested or if torch exists globally
             $pyvenvCfg = Join-Path $VenvDir "pyvenv.cfg"
-            $inheritSys = $UseSystemSitePackages -or (& $pythonExe -c "import torch" 2>$null)
+            & $pythonExe -c "import torch" 2>$null
+            $sysHasTorch = ($LASTEXITCODE -eq 0)
+            $inheritSys = $UseSystemSitePackages -or $sysHasTorch
             if (Test-Path $pyvenvCfg) {
                 $cfgContent = Get-Content $pyvenvCfg -Raw
                 if ($inheritSys) {
