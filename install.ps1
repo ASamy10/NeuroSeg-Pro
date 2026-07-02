@@ -23,15 +23,15 @@ $LogDir = Join-Path $LocalAppDataDir "logs"
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
 
 # Multi-log separation targets
-$LogBootstrap  = Join-Path $LogDir "bootstrap.log"
-$LogPython     = Join-Path $LogDir "python_install.log"
-$LogDeps       = Join-Path $LogDir "dependency_install.log"
-$LogGpu        = Join-Path $LogDir "gpu_detection.log"
-$LogVerify     = Join-Path $LogDir "verification.log"
-$LogRepair     = Join-Path $LogDir "repair.log"
+$LogBootstrap = Join-Path $LogDir "bootstrap.log"
+$LogPython = Join-Path $LogDir "python_install.log"
+$LogDeps = Join-Path $LogDir "dependency_install.log"
+$LogGpu = Join-Path $LogDir "gpu_detection.log"
+$LogVerify = Join-Path $LogDir "verification.log"
+$LogRepair = Join-Path $LogDir "repair.log"
 
 $VenvDir = Join-Path $LocalAppDataDir ".venv"
-$VenvPy  = Join-Path $VenvDir "Scripts\python.exe"
+$VenvPy = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPip = Join-Path $VenvDir "Scripts\pip.exe"
 $VenvPyw = Join-Path $VenvDir "Scripts\pythonw.exe"
 $TempFilesToClean = @()
@@ -57,7 +57,7 @@ function Write-Log {
 function Log-Exception {
     param([string]$OpName, [string]$CommandStr, [int]$ErrCode, [object]$Ex)
     $TimeStamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $exMsg   = if ($Ex -is [System.Management.Automation.ErrorRecord]) { $Ex.Exception.Message } elseif ($Ex.Message) { $Ex.Message } else { $Ex.ToString() }
+    $exMsg = if ($Ex -is [System.Management.Automation.ErrorRecord]) { $Ex.Exception.Message } elseif ($Ex.Message) { $Ex.Message } else { $Ex.ToString() }
     $exStack = if ($Ex -is [System.Management.Automation.ErrorRecord]) { $Ex.ScriptStackTrace } elseif ($Ex.StackTrace) { $Ex.StackTrace } else { "" }
     $Formatted = "`n[$TimeStamp] [FATAL EXCEPTION]`nOperation  : $OpName`nCommand    : $CommandStr`nExit Code  : $ErrCode`nException  : $exMsg`nStackTrace : $exStack`n"
     Write-Host $Formatted -ForegroundColor Red
@@ -67,7 +67,7 @@ function Log-Exception {
 
 function Update-EnvironmentPath {
     $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
-    $userPath    = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
     $env:Path = "$machinePath;$userPath"
 }
 
@@ -80,11 +80,13 @@ function Get-ResumableDownload {
             Write-Log "Downloading $Url (Attempt $attempt of $MaxRetries)..." "INFO" $LogBootstrap
             if (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue) {
                 Start-BitsTransfer -Source $Url -Destination $Destination -Description "NeuroSeg Pro Runtime" -RetryInterval 10 -RetryTimeout 60
-            } else {
+            }
+            else {
                 Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
             }
             if (Test-Path $Destination) { return $true }
-        } catch {
+        }
+        catch {
             Write-Log "Download retry $attempt error`: $_" "WARNING" $LogBootstrap
             $attempt++
             if ($attempt -le $MaxRetries) { Start-Sleep -Seconds ([math]::pow(2, $attempt)) }
@@ -125,13 +127,14 @@ try {
         Write-Log "Notice: Bootstrapper invoked without Administrator rights. Relaunching via Start-Process -Verb RunAs..." "WARNING" $LogBootstrap
         $argList = @("-ExecutionPolicy", "Bypass", "-NoProfile", "-File", "`"$($MyInvocation.MyCommand.Path)`"")
         if ($Unattended) { $argList += "-Unattended" }
-        if ($Repair)     { $argList += "-Repair" }
+        if ($Repair) { $argList += "-Repair" }
 
         try {
             $elevatedProc = Start-Process powershell.exe -Verb RunAs -ArgumentList $argList -Wait -PassThru
             Write-Log "Self-elevation relaunch succeeded. Child process exited with code: $($elevatedProc.ExitCode)" "INFO" $LogBootstrap
             exit $elevatedProc.ExitCode
-        } catch {
+        }
+        catch {
             Write-Log "Self-elevation failed or UAC prompt declined by user (`$_)." "ERROR" $LogBootstrap
             throw "Administrator privileges are required to configure NeuroSeg Pro system dependencies."
         }
@@ -145,7 +148,8 @@ try {
     try {
         $connTest = Invoke-WebRequest -Uri "https://pypi.org" -UseBasicParsing -TimeoutSec 5 -ErrorAction SilentlyContinue
         if ($connTest.StatusCode -eq 200) { $isOnline = $true }
-    } catch { $isOnline = $false }
+    }
+    catch { $isOnline = $false }
     Write-Log "Internet Connectivity: $(if ($isOnline) { 'ONLINE' } else { 'OFFLINE' })" "INFO" $LogBootstrap
 
     # --- Step 2: GPU Intelligence & CUDA Capability ---
@@ -160,7 +164,7 @@ try {
                 $gpuName = $g.Name
                 $smiCmd = Get-Command "nvidia-smi" -ErrorAction SilentlyContinue
                 if ($smiCmd) {
-                    $smiLines = @(& $smiCmd --query-gpu=driver_version --format=csv,noheader 2>$null)
+                    $smiLines = @(& $smiCmd --query-gpu=driver_version --format=csv, noheader 2>$null)
                     if ($smiLines.Count -gt 0 -and $smiLines[0]) {
                         $driverVer = ([string]$smiLines[0]).Trim()
                         $driverMajor = [int]($driverVer -split '\.')[0]
@@ -168,16 +172,19 @@ try {
                         if ($driverMajor -ge 525) {
                             $cudaSupported = $true
                             Write-Log "NVIDIA Driver confirmed compatible with CUDA 12.1 runtime." "INFO" $LogGpu
-                        } else {
+                        }
+                        else {
                             Write-Log "Warning: NVIDIA driver ($driverVer) older than v525.x. Falling back to CPU target." "WARNING" $LogGpu
                         }
                     }
                 }
-            } elseif ($g.Name -match "AMD|Intel") {
+            }
+            elseif ($g.Name -match "AMD|Intel") {
                 $gpuName = $g.Name
             }
         }
-    } catch { Write-Log "GPU detection warning: $_" "WARNING" $LogGpu }
+    }
+    catch { Write-Log "GPU detection warning: $_" "WARNING" $LogGpu }
 
     # --- Step 3: Visual C++ Runtime & Git Audit ---
     Write-Log "Verifying Visual C++ Redistributable x64..." "INFO" $LogBootstrap
@@ -225,7 +232,8 @@ try {
                 if ($sysPy) { $pythonExe = $sysPy.Source } else { throw "Python installed but executable binary unlocated." }
             }
         }
-    } catch {
+    }
+    catch {
         Log-Exception "Python Acquisition" "Python Setup Engine" 1 $_
         exit 1
     }
@@ -236,55 +244,15 @@ try {
         if (Test-Path $TokenFile) { Remove-Item $TokenFile -Force -ErrorAction SilentlyContinue }
 
         Write-Log "Orchestrating LocalAppData virtual environment at $VenvDir..." "INFO" $LogBootstrap
-        $importedBackup = $false
-
-        # Prompt for offline backup if venv is unlocated and running interactively
-        if (-not (Test-Path $VenvPy) -and -not $Unattended) {
-            try {
-                Add-Type -AssemblyName System.Windows.Forms
-                $msgResult = [System.Windows.Forms.MessageBox]::Show(
-                    "Do you have a backed-up NeuroSeg Pro virtual environment (.venv folder) on an external drive or backup directory?`n`nSelecting your backup will import ~3 GB of pre-installed AI libraries locally, saving internet data and avoiding lengthy downloads.",
-                    "NeuroSeg Pro - Offline Cache & Backup Import",
-                    [System.Windows.Forms.MessageBoxButtons]::YesNo,
-                    [System.Windows.Forms.MessageBoxIcon]::Question
-                )
-                if ($msgResult -eq [System.Windows.Forms.DialogResult]::Yes) {
-                    $fbd = New-Object System.Windows.Forms.FolderBrowserDialog
-                    $fbd.Description = "Select your backed-up .venv directory (containing Lib and Scripts folders):"
-                    $fbd.ShowNewFolderButton = $false
-                    if ($fbd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and $fbd.SelectedPath) {
-                        $srcPath = $fbd.SelectedPath
-                        if (Test-Path (Join-Path $srcPath "Lib\site-packages")) {
-                            Write-Log "Importing backup virtual environment from $srcPath to $VenvDir..." "INFO" $LogBootstrap
-                            if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue }
-                            New-Item -ItemType Directory -Path $VenvDir -Force | Out-Null
-                            if (Get-Command robocopy -ErrorAction SilentlyContinue) {
-                                robocopy "`"$srcPath`"" "`"$VenvDir`"" /E /MT:8 /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
-                            } else {
-                                Copy-Item -Path "$srcPath\*" -Destination $VenvDir -Recurse -Force
-                            }
-                            $importedBackup = $true
-                            Write-Log "Backup virtual environment successfully imported." "INFO" $LogBootstrap
-                        } else {
-                            Write-Log "Notice: Selected path $srcPath did not contain Lib\site-packages. Proceeding with standard setup." "WARNING" $LogBootstrap
-                        }
-                    }
-                }
-            } catch {
-                Write-Log "Notice: Graphical folder browser unavailable. Proceeding with standard setup." "WARNING" $LogBootstrap
-            }
-        }
-
-        if (-not (Test-Path $VenvPy) -or -not (Test-Path $VenvPyw) -or $Repair -or $importedBackup) {
-            Write-Log "Synchronizing virtual environment links via $pythonExe -m venv $VenvDir..." "INFO" $LogBootstrap
-            if (-not $importedBackup -and (Test-Path $VenvDir)) {
-                Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue
-            }
+        if (-not (Test-Path $VenvPy) -or -not (Test-Path $VenvPyw) -or $Repair) {
+            Write-Log "Creating clean isolated virtual environment via $pythonExe -m venv $VenvDir..." "INFO" $LogBootstrap
+            if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue }
             & $pythonExe -m venv $VenvDir
             $venvExit = $LASTEXITCODE
             Write-Log "python -m venv exited with code $venvExit" "INFO" $LogBootstrap
             if ($venvExit -ne 0 -or -not (Test-Path $VenvPyw)) { throw "Virtual environment initialization failed with exit code $venvExit." }
-        } else {
+        }
+        else {
             # Ensure existing virtual environment is isolated from conflicting host packages
             $pyvenvCfg = Join-Path $VenvDir "pyvenv.cfg"
             if (Test-Path $pyvenvCfg) {
@@ -300,7 +268,8 @@ try {
         $pipExit = $LASTEXITCODE
         Write-Log "pip upgrade exited with code $pipExit" "INFO" $LogBootstrap
         if ($pipExit -ne 0) { throw "Packaging toolchain upgrade exited with code $pipExit." }
-    } catch {
+    }
+    catch {
         Log-Exception "Virtual Environment Creation" "python -m venv" 2 $_
         exit 2
     }
@@ -328,8 +297,10 @@ try {
                 Write-Log "pip install torch exited with code $torchExit" "INFO" $LogGpu
                 if ($torchExit -ne 0) { throw "PyTorch installation failed with exit code $torchExit." }
             }
-        } else { Write-Log "PyTorch engine verified satisfied: $torchVer" "INFO" $LogGpu }
-    } catch {
+        }
+        else { Write-Log "PyTorch engine verified satisfied: $torchVer" "INFO" $LogGpu }
+    }
+    catch {
         Log-Exception "PyTorch Acceleration Setup" "pip install torch" 4 $_
         exit 4
     }
@@ -348,13 +319,16 @@ try {
                 $depsExit = $LASTEXITCODE
                 Write-Log "pip install -r requirements.txt exited with code $depsExit" "INFO" $LogDeps
                 if ($depsExit -ne 0) { throw "pip install -r requirements.txt failed with exit code $depsExit." }
-            } else {
+            }
+            else {
                 Write-Log "System offline: Unable to synchronize requirements.txt online." "WARNING" $LogDeps
             }
-        } else {
+        }
+        else {
             Write-Log "Notice: requirements.txt not located at $ReqFile." "WARNING" $LogDeps
         }
-    } catch {
+    }
+    catch {
         Log-Exception "Requirements Acquisition" "pip install -r requirements.txt" 3 $_
         exit 3
     }
@@ -362,7 +336,7 @@ try {
     # --- Step 8: Comprehensive Verification Audit (Exit Code 5 on Failure) ---
     try {
         Write-Log "Executing strict post-setup runtime verification audit..." "INFO" $LogVerify
-        if (-not (Test-Path $VenvPy))  { throw "Verification failed: python.exe unlocated in .venv." }
+        if (-not (Test-Path $VenvPy)) { throw "Verification failed: python.exe unlocated in .venv." }
         if (-not (Test-Path $VenvPyw)) { throw "Verification failed: pythonw.exe unlocated in .venv." }
         if (-not (Test-Path $VenvPip)) { throw "Verification failed: pip.exe unlocated in .venv." }
 
@@ -375,7 +349,8 @@ try {
         if ($missingMods.Count -gt 0) {
             if (-not $isOnline) {
                 Write-Log "Audit note: Offline mode skipped downloading missing modules: $($missingMods -join ', ')" "WARNING" $LogVerify
-            } else {
+            }
+            else {
                 throw "Verification failure: Missing essential core modules: $($missingMods -join ', ')"
             }
         }
@@ -395,7 +370,8 @@ try {
         New-Item -ItemType File -Path $TokenFile -Force | Out-Null
 
         Write-Log "Runtime verification audit confirmed 100% successful." "INFO" $LogVerify
-    } catch {
+    }
+    catch {
         Log-Exception "Runtime Verification Audit" "Verification Engine" 5 $_
         exit 5
     }
@@ -407,11 +383,13 @@ try {
     Write-Log "============================================================" "INFO" $LogBootstrap
     exit 0
 
-} catch {
+}
+catch {
     $Stopwatch.Stop()
     Log-Exception "Unhandled Bootstrapper Execution" "install.ps1" 1 $_
     exit 1
-} finally {
+}
+finally {
     foreach ($tf in $script:TempFilesToClean) {
         if ($tf -and (Test-Path $tf)) { Remove-Item $tf -Force -ErrorAction SilentlyContinue }
     }
