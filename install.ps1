@@ -31,6 +31,7 @@ $LogVerify = Join-Path $LogDir "verification.log"
 $LogRepair = Join-Path $LogDir "repair.log"
 
 $VenvDir = Join-Path $LocalAppDataDir ".venv"
+$VenvParent = Split-Path $VenvDir -Parent
 $VenvPy = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPip = Join-Path $VenvDir "Scripts\pip.exe"
 $VenvPyw = Join-Path $VenvDir "Scripts\pythonw.exe"
@@ -49,9 +50,7 @@ function Write-Log {
     if ($TargetLog -ne $LogBootstrap) {
         Add-Content -Path $LogBootstrap -Value $Formatted -ErrorAction SilentlyContinue
     }
-    if ($Repair) {
-        Add-Content -Path $LogRepair -Value $Formatted -ErrorAction SilentlyContinue
-    }
+    if ($Repair) { Add-Content -Path $LogRepair -Value $Formatted -ErrorAction SilentlyContinue }
 }
 
 function Log-Exception {
@@ -93,6 +92,20 @@ function Get-ResumableDownload {
         }
     }
     throw "Failed downloading $Url after $MaxRetries attempts."
+}
+
+function Invoke-PipInstallWithRetry {
+    param([string[]]$PipArgs, [string]$TargetLog, [int]$MaxRetries = 3)
+    $attempt = 1
+    while ($attempt -le $MaxRetries) {
+        Write-Log "Executing (Attempt $attempt/$MaxRetries): $VenvPip $($PipArgs -join ' ')" "INFO" $TargetLog
+        & $VenvPip @PipArgs
+        if ($LASTEXITCODE -eq 0) { return }
+        Write-Log "pip exited with code $LASTEXITCODE on attempt $attempt" "WARNING" $TargetLog
+        $attempt++
+        if ($attempt -le $MaxRetries) { Start-Sleep -Seconds 5 }
+    }
+    throw "pip install failed after $MaxRetries attempts."
 }
 
 # -----------------------------------------------------------------------------
@@ -159,12 +172,13 @@ try {
     try {
         $gpus = Get-CimInstance Win32_VideoController
         foreach ($g in $gpus) {
-            Write-Log "Graphics Adapter Detected: $($g.Name) ($([math]::round($g.AdapterRAM / 1GB, 1)) GB VRAM)" "INFO" $LogGpu
+            $vramStr = if ($g.AdapterRAM) { "$([math]::Round($g.AdapterRAM / 1GB, 1)) GB" } else { "Unknown VRAM" }
+            Write-Log "Graphics Adapter Detected: $($g.Name) ($vramStr)" "INFO" $LogGpu
             if ($g.Name -match "NVIDIA") {
                 $gpuName = $g.Name
                 $smiCmd = Get-Command "nvidia-smi" -ErrorAction SilentlyContinue
                 if ($smiCmd) {
-                    $smiLines = @(& $smiCmd --query-gpu=driver_version --format=csv, noheader 2>$null)
+                    $smiLines = @(& $smiCmd --query-gpu=driver_version --format=csv,noheader 2>$null)
                     if ($smiLines.Count -gt 0 -and $smiLines[0]) {
                         $driverVer = ([string]$smiLines[0]).Trim()
                         $driverMajor = [int]($driverVer -split '\.')[0]
@@ -191,7 +205,7 @@ try {
     $vcInstalled = $false
     $uninsKeys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
     foreach ($k in Get-ItemProperty $uninsKeys -ErrorAction SilentlyContinue) {
-        if ($k.DisplayName -match "Microsoft Visual C\+\+ 201(5|7|9|5-2022) Redistributable \(x64\)") { $vcInstalled = $true; break }
+        if ($k.DisplayName -match "Microsoft Visual C\+\+.*Redistributable.*\(x64\)") { $vcInstalled = $true; break }
     }
     if (-not $vcInstalled -and $isOnline) {
         Write-Log "Downloading Visual C++ Redistributable x64 (~25 MB)..." "INFO" $LogBootstrap
@@ -277,7 +291,7 @@ try {
     # --- Step 6: PyTorch Engine Acquisition (Exit Code 4 on Failure) ---
     try {
         Write-Log "Auditing PyTorch Deep Learning Runtime..." "INFO" $LogGpu
-        $torchVer = & $VenvPy -c "import torch; print(torch.__version__)" 2>$null
+        $torchVer = & $VenvPy -c "try:`n    import torch`n    print(torch.__version__)`nexcept Exception:`n    import sys; sys.exit(1)" 2>$null
         $chkExit = $LASTEXITCODE
         Write-Log "PyTorch dry import exited with code $chkExit (Version: $torchVer)" "INFO" $LogGpu
 
@@ -291,11 +305,7 @@ try {
                 $torchMB = if ($cudaSupported) { 2450.0 } else { 240.0 }
                 Write-Log "Acquiring PyTorch $(if ($cudaSupported) { 'CUDA 12.1 Engine' } else { 'CPU Engine' }) (~$torchMB MB payload)..." "INFO" $LogGpu
                 $idxUrl = if ($cudaSupported) { "https://download.pytorch.org/whl/cu121" } else { "https://download.pytorch.org/whl/cpu" }
-                Write-Log "Executing: $VenvPip install torch torchvision --index-url $idxUrl" "INFO" $LogGpu
-                & $VenvPip install torch torchvision --index-url $idxUrl --prefer-binary
-                $torchExit = $LASTEXITCODE
-                Write-Log "pip install torch exited with code $torchExit" "INFO" $LogGpu
-                if ($torchExit -ne 0) { throw "PyTorch installation failed with exit code $torchExit." }
+                Invoke-PipInstallWithRetry -PipArgs @("install", "torch", "torchvision", "--index-url", $idxUrl, "--prefer-binary") -TargetLog $LogGpu
             }
         }
         else { Write-Log "PyTorch engine verified satisfied: $torchVer" "INFO" $LogGpu }
@@ -314,11 +324,7 @@ try {
             Write-Log "Estimated Installed Disk Storage Required : ~3850.0 MB" "INFO" $LogDeps
 
             if ($isOnline) {
-                Write-Log "Executing: $VenvPip install -r $ReqFile --prefer-binary" "INFO" $LogDeps
-                & $VenvPip install -r $ReqFile --prefer-binary
-                $depsExit = $LASTEXITCODE
-                Write-Log "pip install -r requirements.txt exited with code $depsExit" "INFO" $LogDeps
-                if ($depsExit -ne 0) { throw "pip install -r requirements.txt failed with exit code $depsExit." }
+                Invoke-PipInstallWithRetry -PipArgs @("install", "-r", $ReqFile, "--prefer-binary") -TargetLog $LogDeps
             }
             else {
                 Write-Log "System offline: Unable to synchronize requirements.txt online." "WARNING" $LogDeps
@@ -358,7 +364,7 @@ try {
         # Verify application entry point importability
         $MainPy = Join-Path $WorkingDir "app\main.py"
         if (Test-Path $MainPy) {
-            & $VenvPy -c "import sys; sys.path.insert(0, r'$WorkingDir'); from PyQt5.QtWidgets import QApplication; import torch; import monai; import app.version" 2>&1
+            & $VenvPy -c "import sys; sys.path.insert(0, r'$WorkingDir'); from PyQt5.QtWidgets import QApplication; import torch; import monai; import app.main" 2>&1
             $appExit = $LASTEXITCODE
             Write-Log "Application core dry import exited with code $appExit" "INFO" $LogVerify
             if ($appExit -ne 0) { throw "Application core dry import verification failed (Exit $appExit)." }
