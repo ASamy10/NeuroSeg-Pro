@@ -12,13 +12,13 @@ WshShell.CurrentDirectory = AppDir
 LocalAppDataDir = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\NeuroSegPro"
 VenvDir = LocalAppDataDir & "\.venv"
 PythonwExe = VenvDir & "\Scripts\pythonw.exe"
+TokenFile = LocalAppDataDir & "\.runtime_verified"
 
-' Check if runtime components exist
-If Not fso.FileExists(PythonwExe) Then
-    MsgText = "Runtime components have not yet been installed." & vbCrLf & vbCrLf & _
-              "NeuroSeg Pro needs to finish installing Python and required clinical libraries." & vbCrLf & vbCrLf & _
-              "Would you like to launch the Repair Tool now?"
-    Ans = MsgBox(MsgText, vbYesNo + vbExclamation, "NeuroSeg Pro Runtime Missing")
+' Check if runtime components exist and completed verification
+If Not fso.FileExists(PythonwExe) Or Not fso.FileExists(TokenFile) Then
+    MsgText = "NeuroSeg Pro runtime setup did not finish successfully or components are missing." & vbCrLf & vbCrLf & _
+              "Would you like to launch the automated Repair Tool now?"
+    Ans = MsgBox(MsgText, vbYesNo + vbExclamation, "NeuroSeg Pro Runtime Incomplete")
     If Ans = vbYes Then
         RepairCmd = "powershell.exe -ExecutionPolicy Bypass -NoProfile -File """ & AppDir & "\install.ps1"" -Repair"
         WshShell.Run RepairCmd, 1, False

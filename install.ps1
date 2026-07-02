@@ -232,22 +232,25 @@ try {
 
     # --- Step 5: Virtual Environment Orchestration (Exit Code 2 on Failure) ---
     try {
+        $TokenFile = Join-Path $VenvParent ".runtime_verified"
+        if (Test-Path $TokenFile) { Remove-Item $TokenFile -Force -ErrorAction SilentlyContinue }
+
         Write-Log "Orchestrating LocalAppData virtual environment at $VenvDir..." "INFO" $LogBootstrap
         if (-not (Test-Path $VenvPy) -or -not (Test-Path $VenvPyw) -or $Repair) {
-            Write-Log "Creating virtual environment via $pythonExe -m venv --system-site-packages $VenvDir..." "INFO" $LogBootstrap
+            Write-Log "Creating clean isolated virtual environment via $pythonExe -m venv $VenvDir..." "INFO" $LogBootstrap
             if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue }
-            & $pythonExe -m venv --system-site-packages $VenvDir
+            & $pythonExe -m venv $VenvDir
             $venvExit = $LASTEXITCODE
             Write-Log "python -m venv exited with code $venvExit" "INFO" $LogBootstrap
             if ($venvExit -ne 0 -or -not (Test-Path $VenvPyw)) { throw "Virtual environment initialization failed with exit code $venvExit." }
         } else {
-            # Ensure existing virtual environment includes system & user site-packages to avoid redundant gigabyte downloads
+            # Ensure existing virtual environment is isolated from conflicting host packages
             $pyvenvCfg = Join-Path $VenvDir "pyvenv.cfg"
             if (Test-Path $pyvenvCfg) {
                 $cfgContent = Get-Content $pyvenvCfg -Raw
-                if ($cfgContent -match "include-system-site-packages\s*=\s*false") {
-                    Write-Log "Updating existing pyvenv.cfg to include-system-site-packages = true..." "INFO" $LogBootstrap
-                    $cfgContent -replace "include-system-site-packages\s*=\s*false", "include-system-site-packages = true" | Set-Content $pyvenvCfg -Force
+                if ($cfgContent -match "include-system-site-packages\s*=\s*true") {
+                    Write-Log "Updating existing pyvenv.cfg to include-system-site-packages = false to prevent host conflicts..." "INFO" $LogBootstrap
+                    $cfgContent -replace "include-system-site-packages\s*=\s*true", "include-system-site-packages = false" | Set-Content $pyvenvCfg -Force
                 }
             }
         }
@@ -339,12 +342,16 @@ try {
         # Verify application entry point importability
         $MainPy = Join-Path $WorkingDir "app\main.py"
         if (Test-Path $MainPy) {
-            & $VenvPy -c "import sys; sys.path.insert(0, r'$WorkingDir'); import app.version" 2>&1
+            & $VenvPy -c "import sys; sys.path.insert(0, r'$WorkingDir'); from PyQt5.QtWidgets import QApplication; import torch; import monai; import app.version" 2>&1
             $appExit = $LASTEXITCODE
             Write-Log "Application core dry import exited with code $appExit" "INFO" $LogVerify
-            if ($appExit -ne 0) { Write-Log "Warning during application dry import verification (Exit $appExit)" "WARNING" $LogVerify }
+            if ($appExit -ne 0) { throw "Application core dry import verification failed (Exit $appExit)." }
             else { Write-Log "Application core import verified successfully." "INFO" $LogVerify }
         }
+
+        # Create verification token indicating runtime is 100% complete and verified
+        $TokenFile = Join-Path $VenvParent ".runtime_verified"
+        New-Item -ItemType File -Path $TokenFile -Force | Out-Null
 
         Write-Log "Runtime verification audit confirmed 100% successful." "INFO" $LogVerify
     } catch {
