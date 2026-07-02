@@ -686,6 +686,19 @@ try {
                 }
             }
         }
+
+        if ($inheritSys) {
+            $userSite = (& $pythonExe -c "import site; print(site.getusersitepackages())" 2>$null).Trim()
+            if ($userSite -and (Test-Path $userSite)) {
+                $sitePkgsDir = Join-Path $VenvDir "Lib\site-packages"
+                if (Test-Path $sitePkgsDir) {
+                    $pthFile = Join-Path $sitePkgsDir "_inherit_user_site.pth"
+                    Write-Log "Linking host User Site-Packages ($userSite) into venv via .pth file..." "INFO" $LogBootstrap
+                    $userSite | Set-Content $pthFile -Force
+                }
+            }
+        }
+
         Write-Log "Upgrading base packaging toolchain (pip, setuptools, wheel)..." "INFO" $LogBootstrap
         & $VenvPy -m pip install --upgrade pip setuptools wheel --quiet
         $pipExit = $LASTEXITCODE
