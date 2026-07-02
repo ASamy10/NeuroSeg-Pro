@@ -53,7 +53,7 @@ function Write-Log {
     if ($Repair) { Add-Content -Path $LogRepair -Value $Formatted -ErrorAction SilentlyContinue }
 }
 
-function Log-Exception {
+function Write-ExceptionLog {
     param([string]$OpName, [string]$CommandStr, [int]$ErrCode, [object]$Ex)
     $TimeStamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $exMsg = if ($Ex -is [System.Management.Automation.ErrorRecord]) { $Ex.Exception.Message } elseif ($Ex.Message) { $Ex.Message } else { $Ex.ToString() }
@@ -118,6 +118,7 @@ try {
     Write-Log "Working Directory : $WorkingDir" "INFO" $LogBootstrap
     Write-Log "Runtime Directory : $VenvDir" "INFO" $LogBootstrap
     Write-Log "Execution Mode    : $(if ($Repair) { 'REPAIR & MAINTENANCE' } else { 'STANDARD SETUP' })" "INFO" $LogBootstrap
+    Write-Log "Initiation Time   : $($StartTime.ToString('yyyy-MM-dd HH:mm:ss'))" "INFO" $LogBootstrap
     Write-Log "============================================================" "INFO" $LogBootstrap
 
     Set-Location $WorkingDir
@@ -197,6 +198,7 @@ try {
                 $gpuName = $g.Name
             }
         }
+        Write-Log "Primary Execution Acceleration Target: $gpuName (CUDA Supported: $cudaSupported)" "INFO" $LogGpu
     }
     catch { Write-Log "GPU detection warning: $_" "WARNING" $LogGpu }
 
@@ -248,7 +250,7 @@ try {
         }
     }
     catch {
-        Log-Exception "Python Acquisition" "Python Setup Engine" 1 $_
+        Write-ExceptionLog "Python Acquisition" "Python Setup Engine" 1 $_
         exit 1
     }
 
@@ -284,7 +286,7 @@ try {
         if ($pipExit -ne 0) { throw "Packaging toolchain upgrade exited with code $pipExit." }
     }
     catch {
-        Log-Exception "Virtual Environment Creation" "python -m venv" 2 $_
+        Write-ExceptionLog "Virtual Environment Creation" "python -m venv" 2 $_
         exit 2
     }
 
@@ -311,7 +313,7 @@ try {
         else { Write-Log "PyTorch engine verified satisfied: $torchVer" "INFO" $LogGpu }
     }
     catch {
-        Log-Exception "PyTorch Acceleration Setup" "pip install torch" 4 $_
+        Write-ExceptionLog "PyTorch Acceleration Setup" "pip install torch" 4 $_
         exit 4
     }
 
@@ -335,7 +337,7 @@ try {
         }
     }
     catch {
-        Log-Exception "Requirements Acquisition" "pip install -r requirements.txt" 3 $_
+        Write-ExceptionLog "Requirements Acquisition" "pip install -r requirements.txt" 3 $_
         exit 3
     }
 
@@ -378,7 +380,7 @@ try {
         Write-Log "Runtime verification audit confirmed 100% successful." "INFO" $LogVerify
     }
     catch {
-        Log-Exception "Runtime Verification Audit" "Verification Engine" 5 $_
+        Write-ExceptionLog "Runtime Verification Audit" "Verification Engine" 5 $_
         exit 5
     }
 
@@ -392,7 +394,7 @@ try {
 }
 catch {
     $Stopwatch.Stop()
-    Log-Exception "Unhandled Bootstrapper Execution" "install.ps1" 1 $_
+    Write-ExceptionLog "Unhandled Bootstrapper Execution" "install.ps1" 1 $_
     exit 1
 }
 finally {
