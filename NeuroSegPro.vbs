@@ -8,9 +8,21 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 AppDir = fso.GetParentFolderName(WScript.ScriptFullName)
 WshShell.CurrentDirectory = AppDir
 
-' Locate runtime environment in LocalAppData
 LocalAppDataDir = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\NeuroSegPro"
+ActivePathFile = LocalAppDataDir & "\active_venv.path"
+
 VenvDir = LocalAppDataDir & "\.venv"
+If fso.FileExists(ActivePathFile) Then
+    Set ts = fso.OpenTextFile(ActivePathFile, 1)
+    If Not ts.AtEndOfStream Then
+        CustomPath = Trim(ts.ReadLine())
+        If CustomPath <> "" And fso.FolderExists(CustomPath) Then
+            VenvDir = CustomPath
+        End If
+    End If
+    ts.Close
+End If
+
 PythonwExe = VenvDir & "\Scripts\pythonw.exe"
 TokenFile = LocalAppDataDir & "\.runtime_verified"
 

@@ -79,23 +79,48 @@ Type: filesandordirs; Name: "{app}\__pycache__"
 [Code]
 var
   BootstrapperFailed: Boolean;
+  SysPackagesPage: TInputOptionWizardPage;
+  VenvPage: TInputDirWizardPage;
 
 function CanLaunchApp: Boolean;
 begin
   Result := not BootstrapperFailed;
 end;
 
+procedure InitializeWizard;
+begin
+  SysPackagesPage := CreateInputOptionPage(wpSelectTasks,
+    'Python & Dependency Configuration', 'Optimize installation speed by reusing existing packages',
+    'Select whether NeuroSeg Pro should inherit packages already installed on your system (such as PyTorch or MONAI). Reusing existing installations prevents large 2.5 GB downloads.',
+    False, False);
+  SysPackagesPage.Add('Inherit system-wide Python packages (--system-site-packages) [Recommended if PyTorch is already installed]');
+  SysPackagesPage.Values[0] := True;
+
+  VenvPage := CreateInputDirPage(SysPackagesPage.ID,
+    'Virtual Environment Location', 'Specify your Python virtual environment directory',
+    'If you already have a prepared virtual environment (.venv) with PyTorch installed, select its folder below. Otherwise, keep the default path to manage runtime in LocalAppData.',
+    False, '');
+  VenvPage.Add('Virtual Environment Folder:');
+  VenvPage.Values[0] := ExpandConstant('{localappdata}\NeuroSegPro\.venv');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
-  LogDir: string;
+  LogDir, CmdArgs: string;
 begin
   if CurStep = ssPostInstall then
   begin
     BootstrapperFailed := False;
     WizardForm.StatusLabel.Caption := 'Orchestrating Python runtime and clinical AI dependencies...';
+    CmdArgs := '-ExecutionPolicy Bypass -NoProfile -File "' + ExpandConstant('{app}\install.ps1') + '" -Unattended';
+    if SysPackagesPage.Values[0] then
+      CmdArgs := CmdArgs + ' -UseSystemSitePackages';
+    if Trim(VenvPage.Values[0]) <> '' then
+      CmdArgs := CmdArgs + ' -CustomVenvPath "' + Trim(VenvPage.Values[0]) + '"';
+
     if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-            '-ExecutionPolicy Bypass -NoProfile -File "' + ExpandConstant('{app}\install.ps1') + '" -Unattended',
+            CmdArgs,
             ExpandConstant('{app}'), SW_SHOW, ewWaitUntilTerminated, ResultCode) then
     begin
       if ResultCode <> 0 then

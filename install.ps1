@@ -10,6 +10,8 @@
 #>
 
 param(
+    [string]$CustomVenvPath = "",
+    [switch]$UseSystemSitePackages = $false,
     [switch]$Unattended = $false,
     [switch]$Repair = $false
 )
@@ -31,7 +33,20 @@ $LogGpu = Join-Path $LogDir "gpu_detection.log"
 $LogVerify = Join-Path $LogDir "verification.log"
 $LogRepair = Join-Path $LogDir "repair.log"
 
-$VenvDir = Join-Path $LocalAppDataDir ".venv"
+if ($CustomVenvPath -and $CustomVenvPath.Trim() -ne "") {
+    $VenvDir = $CustomVenvPath.Trim()
+} elseif (Test-Path (Join-Path $LocalAppDataDir "active_venv.path")) {
+    $savedPath = (Get-Content (Join-Path $LocalAppDataDir "active_venv.path") -Raw).Trim()
+    if ($savedPath -ne "" -and (Test-Path $savedPath)) {
+        $VenvDir = $savedPath
+    } else {
+        $VenvDir = Join-Path $LocalAppDataDir ".venv"
+    }
+} else {
+    $VenvDir = Join-Path $LocalAppDataDir ".venv"
+}
+$VenvDir | Set-Content (Join-Path $LocalAppDataDir "active_venv.path") -Force
+
 $VenvParent = Split-Path $VenvDir -Parent
 $VenvPy = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPip = Join-Path $VenvDir "Scripts\pip.exe"
@@ -651,22 +666,32 @@ try {
             }
 
             if ($venvBroken) {
-                Write-Log "Creating clean isolated virtual environment via $pythonExe -m venv $VenvDir..." "INFO" $LogBootstrap
+                $inheritSys = $UseSystemSitePackages -or (& $pythonExe -c "import torch" 2>$null)
+                $venvArgs = @("-m", "venv", $VenvDir)
+                if ($inheritSys) {
+                    Write-Log "Creating virtual environment with --system-site-packages to inherit existing PyTorch/libraries..." "INFO" $LogBootstrap
+                    $venvArgs += "--system-site-packages"
+                } else {
+                    Write-Log "Creating clean isolated virtual environment via $pythonExe -m venv $VenvDir..." "INFO" $LogBootstrap
+                }
                 if (Test-Path $VenvDir) { Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue }
-                & $pythonExe -m venv $VenvDir
+                & $pythonExe @venvArgs
                 $venvExit = $LASTEXITCODE
                 Write-Log "python -m venv exited with code $venvExit" "INFO" $LogBootstrap
                 if ($venvExit -ne 0 -or -not (Test-Path $VenvPyw)) { throw "Virtual environment initialization failed with exit code $venvExit." }
             }
         }
         else {
-            # Ensure existing virtual environment is isolated from conflicting host packages
+            # Configure system site-packages inheritance if requested or if torch exists globally
             $pyvenvCfg = Join-Path $VenvDir "pyvenv.cfg"
+            $inheritSys = $UseSystemSitePackages -or (& $pythonExe -c "import torch" 2>$null)
             if (Test-Path $pyvenvCfg) {
                 $cfgContent = Get-Content $pyvenvCfg -Raw
-                if ($cfgContent -match "include-system-site-packages\s*=\s*true") {
-                    Write-Log "Updating existing pyvenv.cfg to include-system-site-packages = false to prevent host conflicts..." "INFO" $LogBootstrap
-                    $cfgContent -replace "include-system-site-packages\s*=\s*true", "include-system-site-packages = false" | Set-Content $pyvenvCfg -Force
+                if ($inheritSys) {
+                    if ($cfgContent -match "include-system-site-packages\s*=\s*false") {
+                        Write-Log "Configuring pyvenv.cfg to include-system-site-packages = true to utilize existing system libraries..." "INFO" $LogBootstrap
+                        $cfgContent -replace "include-system-site-packages\s*=\s*false", "include-system-site-packages = true" | Set-Content $pyvenvCfg -Force
+                    }
                 }
             }
         }
