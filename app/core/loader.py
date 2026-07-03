@@ -22,6 +22,9 @@ class NiftiLoader:
             # Ensure it's canonical orientation
             img = nib.as_closest_canonical(img)
             data = img.get_fdata()
+            if any(file_path.lower().endswith(s) for s in ['seg.nii', 'seg.nii.gz', 'mask.nii', 'mask.nii.gz']):
+                data = np.round(data).astype(np.uint8)
+                data[data == 4] = 3
             return data, img.affine, img.header
         except Exception as e:
             raise ValueError(f"Failed to load NIfTI file: {str(e)}")
@@ -80,6 +83,9 @@ class NiftiLoader:
                     path = os.path.join(folder_path, f)
                     try:
                         data, aff, _ = NiftiLoader.load_file(path)
+                        if mod == 'seg':
+                            data = np.round(data).astype(np.uint8)
+                            data[data == 4] = 3
                         modalities[mod] = data
                         if affine is None: affine = aff
                     except Exception as e:

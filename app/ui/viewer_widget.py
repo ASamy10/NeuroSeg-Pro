@@ -1321,7 +1321,7 @@ class ViewerWidget(QWidget):
              # Determine which labels are actually present in the 3D volume
              present_classes = set()
              if active_mask is not None:
-                 present_classes = set(np.unique(active_mask).astype(int))
+                 present_classes = set(np.unique(np.round(active_mask)).astype(int))
              
              # Get the currently selected ROI to determine which sub-regions to show
              roi = self.combo_metric_class.currentText() if hasattr(self, 'combo_metric_class') else "Whole Tumor"
@@ -2259,9 +2259,10 @@ class ViewerWidget(QWidget):
                 # (Or if ROI is "Whole Tumor", show all sub-components)
                 # Actually, standard behavior: Show the sub-components that make up the ROI.
                 
+                rounded_mask = np.round(mask_slice).astype(int)
                 for label_id in target_labels:
                     if label_id in ROI_COLORS:
-                        idx = (mask_slice == label_id)
+                        idx = (rounded_mask == label_id)
                         if np.any(idx):
                             c_val = ROI_COLORS[label_id]
                             rgba[idx, 0] = c_val[0]
@@ -2345,8 +2346,9 @@ class ViewerWidget(QWidget):
             
             b_mult = (getattr(self, 'threed_brightness', 100) / 100.0) * 1.35
             
+            rounded_d = np.round(d).astype(int)
             for cls in render_classes:
-                cls_mask = (d == cls)
+                cls_mask = (rounded_d == cls)
                 if not np.any(cls_mask):
                     continue
                 
